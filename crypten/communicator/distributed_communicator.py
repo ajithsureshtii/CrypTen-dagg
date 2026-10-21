@@ -5,6 +5,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import datetime
 import logging
 import os
 import pickle
@@ -52,16 +53,23 @@ class DistributedCommunicator(Communicator):
 
             # initialize process group:
             total_ws = self.world_size + 1 if init_ttp else self.world_size
+            # optional timeout (seconds) for rendezvous and collectives; unset keeps
+            # torch's default (30 min for gloo):
+            timeout = os.environ.get("DISTRIBUTED_TIMEOUT")
+            group_kwargs = (
+                {"timeout": datetime.timedelta(seconds=float(timeout))} if timeout else {}
+            )
             dist.init_process_group(
                 backend=self.distributed_backend,
                 init_method=self.rendezvous,
                 world_size=total_ws,
                 rank=self.rank,
+                **group_kwargs,
             )
-            self.ttp_group = dist.new_group(list(range(total_ws)))
+            self.ttp_group = dist.new_group(list(range(total_ws)), **group_kwargs)
             if total_ws > 1:
-                self.ttp_comm_group = dist.new_group([0, total_ws - 1])
-            self.main_group = dist.new_group(list(range(self.world_size)))
+                self.ttp_comm_group = dist.new_group([0, total_ws - 1], **group_kwargs)
+            self.main_group = dist.new_group(list(range(self.world_size)), **group_kwargs)
             self.ttp_initialized = init_ttp
             logging.info("World size = %d" % self.world_size)
 
